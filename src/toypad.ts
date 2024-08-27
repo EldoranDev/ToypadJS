@@ -1,5 +1,5 @@
 import { Pad } from "./pad";
-import { Command, INIT, ProductID, VendorID } from "./usb";
+import { Command, Event, INIT, ProductID, VendorID } from "./usb";
 
 type Color = [r: number, g: number, b: number];
 
@@ -20,7 +20,6 @@ export class Toypad extends EventTarget {
         }
 
         await this.device.open();
-
         await this.device.sendReport(0, INIT);
 
         this.device.addEventListener("inputreport", (event) => {
@@ -29,7 +28,7 @@ export class Toypad extends EventTarget {
             console.log("RX: ", [...data].map((x) => x.toString(16).padStart(2, '0')).join(' '));
         
             switch (data[1]) {
-                case Command.MinifigScan:
+                case Event.MinifigScan:
                     const eventData = {
                         panel: data[2],
                         index: data[4],
@@ -37,36 +36,65 @@ export class Toypad extends EventTarget {
                         uid: data.slice(7, 13),
                     };
 
+                    console.log("minifig-scan", eventData);
+
                     this.dispatchEvent(new CustomEvent("minifig-scan", { detail: eventData }))            
                     break;
+                case Event.TagRead:
+                    console.log("tag-read", data);
             }
         });
     }
 
     public async setColor(pad: Pad, [r, g, b]: Color): Promise<void> {
-        this.send([0x55, 0x06, 0xC0, 0x02, pad, r, g, b]);
+        await this.send(Command.Color,[
+            pad, r, g, b
+        ]);
     }
 
-    private async send(command: Array<number>) {
+    public async readTag(index: number, page: number): Promise<void> {
+        await this.send(Command.ReadTag, [
+            index, page
+        ]);
+    }
+
+    private async send(cmd: Command, payload: Array<number>) {
         if (!this.open) {
             throw new Error("The Device is not open");
         }
 
         let checksum = 0;
 
-        for (const word of command) {
+        for (const word of payload) {
             checksum = (checksum + word) & 0xFF;
         }
 
-        command.push(checksum);
+        const data = [
+            0x55, // Magic Host -> Portal
+            2 + payload.length,
+            cmd,
+            0x02,
+            ...payload,
+        ];
 
-        while (command.length < 32) {
-            command.push(0x00);
+        data.push(this.getChecksum(data));
+
+        const buffer = new Uint8Array(32);
+        buffer.set(data)
+
+        console.log("TX: ", [...buffer].map((x) => x.toString(16).padStart(2, '0')).join(' '));
+
+        this.device.sendReport(0, buffer)
+    }
+
+    private getChecksum(data: Array<number>): number {
+        let checksum = 0;
+
+        for (const word of data) {
+            checksum = (word + checksum) & 0xFF;
         }
 
-        console.log("TX: ", command.map((x) => x.toString(16).padStart(2, '0')).join(' '));
-
-        this.device.sendReport(0, new Uint8Array(command))
+        return checksum;
     }
 
     static async connect(): Promise<Toypad> {
