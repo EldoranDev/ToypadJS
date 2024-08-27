@@ -1,0 +1,1 @@
+export { Toypad } from './toypad';
