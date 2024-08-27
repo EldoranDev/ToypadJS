@@ -8,10 +8,23 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module">
-      import { Toypad } from './src/main'
 
-      console.log(Toypad);
+    <button>Join</button>
+    <script type="module">
+      import { Toypad, Pad } from './src/main'
+
+      const btn = document.querySelector("button");
+
+      btn.addEventListener("click", async () => {
+        const pad = await Toypad.connect();
+
+        await pad.init();
+        await pad.setColor(Pad.AllPads, [255, 0, 0]);
+
+        await new Promise((res, rej) => setTimeout(() => res(), 1000));
+
+        await pad.setColor(Pad.AllPads, [0, 255, 0]);
+      })
     </script>
   </body>
 </html>
