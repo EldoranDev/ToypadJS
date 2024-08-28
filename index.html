@@ -16,14 +16,26 @@
       const btn = document.querySelector("button");
 
       btn.addEventListener("click", async () => {
-        const pad = await Toypad.connect();
+        const pad = await Toypad.connect((info) => {
+          console.log(info);
+        });
 
         await pad.init();
-        await pad.setColor(Pad.AllPads, [255, 0, 0]);
-
-        await new Promise((res, rej) => setTimeout(() => res(), 1000));
 
         await pad.setColor(Pad.AllPads, [0, 255, 0]);
+
+        await new Promise((res, rej) => setTimeout(() => res(), 500));
+
+        await pad.setColor(Pad.LeftPad, [255, 0, 0]);
+        await pad.setColor(Pad.RightPad, [0, 255, 0]);
+        await pad.setColor(Pad.CenterPad, [0, 0, 255]);
+
+        await new Promise((res, rej) => setTimeout(() => res(), 500));
+
+        await pad.flash(Pad.LeftPad, 5, 10, 50, [0, 0, 0]);
+
+        // await pad.readTag(0, 20);
+        // await pad.readTag(0, 1);
       })
     </script>
   </body>
