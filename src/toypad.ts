@@ -1,17 +1,38 @@
 import { Pad } from "./pad";
-import { Command, Event, INIT, ProductID, VendorID } from "./usb";
+import { Command, Event, createFrame, Frame, FrameType, INIT, parseFrame, ProductID, VendorID, MinifigAction } from "./usb";
 
 type Color = [r: number, g: number, b: number];
 
-export class Toypad extends EventTarget {
-    get open(): boolean {
-        return this.device.opened;
+type CallbackFunction = (data: Frame) => void;
+
+type UID = [number, number, number, number, number, number, number];
+
+type MinifigInfo = {
+    uid: UID,
+    pad: Pad,
+    index: number,
+};
+
+export class Toypad {
+    private counter: number = 2;
+
+    private minifigs: Map<string, MinifigInfo> = new Map();
+
+    private promiseMap: Map<string, CallbackFunction> = new Map();
+
+    private  getNextMessageId(): number {
+        return (this.counter++) & 0xFF;
     }
 
     private constructor(
-        private device: HIDDevice
-    ) {
-        super();
+        private device: HIDDevice,
+
+        private addCallback?: (info: MinifigInfo) => void,
+        private removeCallback?: (info: MinifigInfo) => void,
+    ) {}
+
+    public get open(): boolean {
+        return this.device.opened;
     }
 
     public async init(): Promise<void> {
@@ -23,88 +44,108 @@ export class Toypad extends EventTarget {
         await this.device.sendReport(0, INIT);
 
         this.device.addEventListener("inputreport", (event) => {
-            const data = new Uint8Array(event.data.buffer);
+            const frame = parseFrame(new Uint8Array(event.data.buffer));
 
-            console.log("RX: ", [...data].map((x) => x.toString(16).padStart(2, '0')).join(' '));
-        
-            switch (data[1]) {
+            console.debug("RX: ", [...new Uint8Array(event.data.buffer)].map((x) => x.toString(16).padStart(2, '0')).join(' '));
+
+            if (frame.type === FrameType.Message) {
+                if (this.promiseMap.has(frame.messageId.toString())) {
+                    this.promiseMap.get(frame.messageId.toString())!(
+                        frame
+                    );
+                }
+
+                return;
+            }
+
+            switch (frame.event) {
                 case Event.MinifigScan:
-                    const eventData = {
-                        panel: data[2],
-                        index: data[4],
-                        action: data[5],
-                        uid: data.slice(7, 13),
+                    const info: MinifigInfo = {
+                        uid: [...frame.data.slice(4, 11)] as UID,
+                        pad: frame.data[0],
+                        index: frame.data[2],
                     };
 
-                    console.log("minifig-scan", eventData);
+                    if (frame.data[3] === MinifigAction.Add) {
+                        this.minifigs.set(frame.data[2].toString(), info);
+                        if (this.addCallback) {
+                            this.addCallback(info);
+                        }
+                    } else {
+                        this.minifigs.delete(frame.data[2].toString());
 
-                    this.dispatchEvent(new CustomEvent("minifig-scan", { detail: eventData }))            
+                        if (this.removeCallback) {
+                            this.removeCallback(info);
+                        }
+                    }
                     break;
-                case Event.TagRead:
-                    console.log("tag-read", data);
             }
         });
     }
 
     public async setColor(pad: Pad, [r, g, b]: Color): Promise<void> {
-        await this.send(Command.Color,[
+        await this.send(Command.Color, this.getNextMessageId(), [
             pad, r, g, b
         ]);
     }
 
-    public async readTag(index: number, page: number): Promise<void> {
-        await this.send(Command.ReadTag, [
-            index, page
-        ]);
+    public async flash(pad: Pad, ticksOn: number, ticksOff: number, ticksCount: number, [r, g, b]: Color): Promise<void> {
+        await this.send(Command.Flash, this.getNextMessageId(), [
+            pad, ticksOn & 0xFF, ticksOff & 0xFF, ticksCount & 0xFF, r, g, b,
+        ])
     }
 
-    private async send(cmd: Command, payload: Array<number>) {
+    public readTag(index: number, page: number): Promise<Uint8Array> {
+        return new Promise((resolve, reject) => {
+            const messageId = this.getNextMessageId();
+
+            this.promiseMap.set(messageId.toString(), (frame: Frame) => {
+                console.debug('tag-read', frame);
+
+                this.promiseMap.delete(messageId.toString());
+                
+                if (frame.event !== Event.Success) {
+                    reject("Read error on tag");
+                }
+
+                resolve(frame.data);
+            })
+
+            this.send(Command.ReadTag, messageId, [
+                index, page
+            ]).catch((err) => {
+                reject(err);
+            })
+        });
+    }
+
+    private async send(cmd: Command, messageId: number, payload: Array<number>) {
         if (!this.open) {
             throw new Error("The Device is not open");
         }
 
-        let checksum = 0;
+        const buffer = createFrame(cmd, messageId, payload);
 
-        for (const word of payload) {
-            checksum = (checksum + word) & 0xFF;
-        }
+        console.debug("TX: ", [...buffer].map((x) => x.toString(16).padStart(2, '0')).join(' '));
 
-        const data = [
-            0x55, // Magic Host -> Portal
-            2 + payload.length,
-            cmd,
-            0x02,
-            ...payload,
-        ];
-
-        data.push(this.getChecksum(data));
-
-        const buffer = new Uint8Array(32);
-        buffer.set(data)
-
-        console.log("TX: ", [...buffer].map((x) => x.toString(16).padStart(2, '0')).join(' '));
-
-        this.device.sendReport(0, buffer)
+        await this.device.sendReport(0, buffer)
     }
 
-    private getChecksum(data: Array<number>): number {
-        let checksum = 0;
-
-        for (const word of data) {
-            checksum = (word + checksum) & 0xFF;
-        }
-
-        return checksum;
-    }
-
-    static async connect(): Promise<Toypad> {
+    static async connect(
+        addCallback?: (info: MinifigInfo) => void,
+        removeCallback?: (info: MinifigInfo) => void,
+    ): Promise<Toypad> {
         return new Promise((res, rej) => {
             navigator.hid.requestDevice({
                 filters: [
                     { vendorId: VendorID, productId: ProductID }
                 ]
             }).then((device) => {
-                res(new Toypad(device[0]));
+                res(new Toypad(
+                    device[0],
+                    addCallback,
+                    removeCallback,
+                ));
             }).catch((err) => {
                 rej(err);
             })

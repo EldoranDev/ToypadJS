@@ -16,7 +16,9 @@
       const btn = document.querySelector("button");
 
       btn.addEventListener("click", async () => {
-        const pad = await Toypad.connect();
+        const pad = await Toypad.connect((info) => {
+          console.log(info);
+        });
 
         await pad.init();
 
@@ -30,7 +32,10 @@
 
         await new Promise((res, rej) => setTimeout(() => res(), 500));
 
-        await pad.readTag(0);
+        await pad.flash(Pad.LeftPad, 5, 10, 50, [0, 0, 0]);
+
+        // await pad.readTag(0, 20);
+        // await pad.readTag(0, 1);
       })
     </script>
   </body>
