@@ -21,6 +21,7 @@ export enum Command {
     Color = 0xC0,
     Flash = 0xC3,
     ReadTag = 0xD2,
+    WriteTag = 0xD3,
 }
 
 export type Frame = EventFrame | ResponseFrame;

@@ -53,6 +53,8 @@ export class Toypad {
                     this.promiseMap.get(frame.messageId.toString())!(
                         frame
                     );
+
+                    this.promiseMap.delete(frame.messageId.toString());
                 }
 
                 return;
@@ -87,6 +89,14 @@ export class Toypad {
         return [...this.minifigs.values()];
     }
 
+    public hasMinifig(pad: Pad): boolean {
+        if (pad === Pad.AllPads) {
+            return this.minifigs.size > 0;
+        }
+
+        return this.getMinifigs().filter((info) => info.pad === pad).length > 0;
+    }
+
     public async setColor(pad: Pad, [r, g, b]: Color): Promise<void> {
         await this.send(Command.Color, this.getNextMessageId(), [
             pad, r, g, b
@@ -106,8 +116,6 @@ export class Toypad {
             this.promiseMap.set(messageId.toString(), (frame: Frame) => {
                 console.debug('tag-read', frame);
 
-                this.promiseMap.delete(messageId.toString());
-                
                 if (frame.event !== Event.Success) {
                     reject("Read error on tag");
                 }
@@ -120,6 +128,21 @@ export class Toypad {
             ]).catch((err) => {
                 reject(err);
             })
+        });
+    }
+
+    public writeTag(index: number, page: number, data: Array<number>): Promise<void> {
+        return new Promise((resolve) => {
+            const messageId = this.getNextMessageId();
+
+            this.promiseMap.set(messageId.toString(), (frame: Frame) => {
+                console.debug('tag-write', frame);
+                resolve();
+            })
+
+            this.send(Command.WriteTag, messageId, [
+                index, page, ...data
+            ])
         });
     }
 
