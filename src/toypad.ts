@@ -1,13 +1,13 @@
 import { Pad } from "./pad";
 import { Command, Event, createFrame, Frame, FrameType, INIT, parseFrame, ProductID, VendorID, MinifigAction } from "./usb";
 
-type Color = [r: number, g: number, b: number];
+export type Color = [r: number, g: number, b: number];
 
 type CallbackFunction = (data: Frame) => void;
 
-type UID = [number, number, number, number, number, number, number];
+export type UID = [number, number, number, number, number, number, number];
 
-type MinifigInfo = {
+export type MinifigInfo = {
     uid: UID,
     pad: Pad,
     index: number,
@@ -81,6 +81,10 @@ export class Toypad {
                     break;
             }
         });
+    }
+
+    public getMinifigs(): Array<MinifigInfo> {
+        return [...this.minifigs.values()];
     }
 
     public async setColor(pad: Pad, [r, g, b]: Color): Promise<void> {
