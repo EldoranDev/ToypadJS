@@ -1,6 +1,3 @@
-export const VendorID = 0x0E6F;
-export const ProductID = 0x0241;
-
 export const FRAME_SIZE = 0x20;
 
 export enum FrameType {

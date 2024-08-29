@@ -1,5 +1,6 @@
 import { Pad } from "./pad";
-import { Command, Event, createFrame, Frame, FrameType, INIT, parseFrame, ProductID, VendorID, MinifigAction } from "./usb";
+import { Command, Event, createFrame, Frame, FrameType, INIT, parseFrame, MinifigAction } from "./protocol";
+import { getDevice, Device } from "./usb";
 
 export type Color = [r: number, g: number, b: number];
 
@@ -25,7 +26,7 @@ export class Toypad {
     }
 
     private constructor(
-        private device: HIDDevice,
+        private device: Device,
 
         private addCallback?: (info: MinifigInfo) => void,
         private removeCallback?: (info: MinifigInfo) => void,
@@ -41,12 +42,12 @@ export class Toypad {
         }
 
         await this.device.open();
-        await this.device.sendReport(0, INIT);
+        await this.device.send(INIT);
 
-        this.device.addEventListener("inputreport", (event) => {
-            const frame = parseFrame(new Uint8Array(event.data.buffer));
+        this.device.addListener((data: Uint8Array) => {
+            const frame = parseFrame(data);
 
-            console.debug("RX: ", [...new Uint8Array(event.data.buffer)].map((x) => x.toString(16).padStart(2, '0')).join(' '));
+            console.debug("RX: ", [...data].map((x) => x.toString(16).padStart(2, '0')).join(' '));
 
             if (frame.type === FrameType.Message) {
                 if (this.promiseMap.has(frame.messageId.toString())) {
@@ -155,27 +156,23 @@ export class Toypad {
 
         console.debug("TX: ", [...buffer].map((x) => x.toString(16).padStart(2, '0')).join(' '));
 
-        await this.device.sendReport(0, buffer)
+        await this.device.send(buffer)
     }
 
     static async connect(
         addCallback?: (info: MinifigInfo) => void,
         removeCallback?: (info: MinifigInfo) => void,
     ): Promise<Toypad> {
-        return new Promise((res, rej) => {
-            navigator.hid.requestDevice({
-                filters: [
-                    { vendorId: VendorID, productId: ProductID }
-                ]
-            }).then((device) => {
-                res(new Toypad(
-                    device[0],
-                    addCallback,
-                    removeCallback,
-                ));
-            }).catch((err) => {
-                rej(err);
-            })
-        });
+        try {
+            return new Toypad(
+                await getDevice(),
+                addCallback,
+                removeCallback,
+            );
+        } catch(e) {
+            console.error(e);
+
+            throw new Error("Could not get a device");
+        }
     }
 }
