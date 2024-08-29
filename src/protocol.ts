@@ -15,10 +15,20 @@ export enum Event {
 }
 
 export enum Command {
+    Wake = 0xB0,
+    Seed = 0xB1,
+    Challenge = 0xB3,
     Color = 0xC0,
+    GetColor = 0xC1,
+    Fade = 0xC2,
     Flash = 0xC3,
+    FadeRandom = 0xC4,
+    ColorAll = 0xC8,
+    TagList = 0xD0,
     ReadTag = 0xD2,
     WriteTag = 0xD3,
+    Password = 0xE1,
+    Active = 0xE5,
 }
 
 export type Frame = EventFrame | ResponseFrame;
@@ -40,8 +50,6 @@ export enum MinifigAction {
     Add = 0x0,
     Remove = 0x1
 }
-
-export const INIT = new Uint8Array([0x55, 0x0f, 0xb0, 0x01, 0x28, 0x63, 0x29, 0x20, 0x4c, 0x45, 0x47, 0x4f, 0x20, 0x32, 0x30, 0x31, 0x34, 0xf7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
 export function createFrame(cmd: number, messageId: number, payload: Array<number>): Uint8Array {
     if(payload.length + 2 > FRAME_SIZE) {
@@ -73,6 +81,8 @@ export function parseFrame(data: Uint8Array): EventFrame | ResponseFrame {
         throw new Error("invalid frame: checksum is not correct");
     }
 
+    console.debug("Frame with length: ", length);
+
     switch (data[0]) {
         case FrameType.Event:
             return {
@@ -85,7 +95,7 @@ export function parseFrame(data: Uint8Array): EventFrame | ResponseFrame {
                 type: data[0],
                 event: data[3],
                 messageId: data[2],
-                data: data.slice(4, 2+length),
+                data: data.slice(3, 2+length),
             };
 
         default:

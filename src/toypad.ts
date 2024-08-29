@@ -1,5 +1,5 @@
 import { Pad } from "./pad";
-import { Command, Event, createFrame, Frame, FrameType, INIT, parseFrame, MinifigAction } from "./protocol";
+import { Command, Event, createFrame, Frame, FrameType, parseFrame, MinifigAction } from "./protocol";
 import { getDevice, Device } from "./usb";
 
 export type Color = [r: number, g: number, b: number];
@@ -15,7 +15,7 @@ export type MinifigInfo = {
 };
 
 export class Toypad {
-    private counter: number = 2;
+    private counter: number = 1;
 
     private minifigs: Map<string, MinifigInfo> = new Map();
 
@@ -42,7 +42,7 @@ export class Toypad {
         }
 
         await this.device.open();
-        await this.device.send(INIT);
+        await this.wake();
 
         this.device.addListener((data: Uint8Array) => {
             const frame = parseFrame(data);
@@ -98,23 +98,64 @@ export class Toypad {
         return this.getMinifigs().filter((info) => info.pad === pad).length > 0;
     }
 
-    public async setColor(pad: Pad, [r, g, b]: Color): Promise<void> {
-        await this.send(Command.Color, this.getNextMessageId(), [
-            pad, r, g, b
+    public async wake(): Promise<void> {
+        await this.send(Command.Wake, [
+            // Hex of: (c) LEGO 2014
+            0x28, 0x63, 0x29, 0x20, 0x4c, 0x45, 0x47, 0x4f, 0x20, 0x32, 0x30, 0x31, 0x34,
         ]);
     }
 
-    public async flash(pad: Pad, ticksOn: number, ticksOff: number, ticksCount: number, [r, g, b]: Color): Promise<void> {
-        await this.send(Command.Flash, this.getNextMessageId(), [
-            pad, ticksOn & 0xFF, ticksOff & 0xFF, ticksCount & 0xFF, r, g, b,
+    public async setColor(pad: Pad, color: Color): Promise<void> {
+        await this.send(Command.Color, [
+            pad, ...color
+        ]);
+    }
+
+    public getColor(pad: Pad): Promise<Color> {
+        if (pad === Pad.AllPads) {
+            throw new Error("Color can not be requested from all pads");
+        }
+
+        return new Promise((resolve, reject) => {
+            this.send(Command.GetColor, [(pad - 1)], (frame: Frame) => {
+                console.log(frame);
+
+                resolve([0, 0, 0]);
+            }).catch((e) => {
+                reject(e);
+            });
+        });
+    }
+
+    public async setColorAll(center: Color, left: Color, right: Color): Promise<void> {
+        await this.send(Command.ColorAll, [
+            1, ...center, 1, ...left, 1, ...right,
+        ]);
+    }
+
+    public async flash(pad: Pad, ticksOn: number, ticksOff: number, ticksCount: number, color: Color): Promise<void> {
+        await this.send(Command.Flash, [
+            pad, ticksOn & 0xFF, ticksOff & 0xFF, ticksCount & 0xFF, ...color,
+        ])
+    }
+
+    public async fade(pad: Pad, tickTime: number, tickCount: number, color: Color): Promise<void> {
+        await this.send(Command.Fade, [
+            pad, tickTime & 0xFF, tickCount & 0xFF, ...color,
+        ]);
+    }
+
+    public async fadeRandom(pad: Pad, tickTime: number, tickCount: number): Promise<void> {
+        await this.send(Command.FadeRandom, [
+            pad, tickTime, tickCount,
         ])
     }
 
     public readTag(index: number, page: number): Promise<Uint8Array> {
         return new Promise((resolve, reject) => {
-            const messageId = this.getNextMessageId();
-
-            this.promiseMap.set(messageId.toString(), (frame: Frame) => {
+            this.send(Command.ReadTag, [
+                index, page
+            ], (frame: Frame) => {
                 console.debug('tag-read', frame);
 
                 if (frame.event !== Event.Success) {
@@ -122,39 +163,43 @@ export class Toypad {
                 }
 
                 resolve(frame.data);
-            })
-
-            this.send(Command.ReadTag, messageId, [
-                index, page
-            ]).catch((err) => {
+            }).catch((err) => {
                 reject(err);
-            })
+            });
         });
     }
 
     public writeTag(index: number, page: number, data: Array<number>): Promise<void> {
         return new Promise((resolve) => {
-            const messageId = this.getNextMessageId();
-
-            this.promiseMap.set(messageId.toString(), (frame: Frame) => {
+            this.send(Command.WriteTag, [
+                index, page, ...data
+            ], (frame: Frame) => {
                 console.debug('tag-write', frame);
                 resolve();
-            })
-
-            this.send(Command.WriteTag, messageId, [
-                index, page, ...data
-            ])
+            });
         });
     }
 
-    private async send(cmd: Command, messageId: number, payload: Array<number>) {
+    private async send(
+        cmd: Command,
+        payload: Array<number>,
+        callback?: CallbackFunction,
+    ) {
         if (!this.open) {
             throw new Error("The Device is not open");
         }
 
+        const messageId = this.getNextMessageId();
         const buffer = createFrame(cmd, messageId, payload);
 
         console.debug("TX: ", [...buffer].map((x) => x.toString(16).padStart(2, '0')).join(' '));
+
+        if (undefined !== callback) {
+            this.promiseMap.set(
+                messageId.toString(),
+                callback,
+            );
+        }
 
         await this.device.send(buffer)
     }
@@ -163,16 +208,10 @@ export class Toypad {
         addCallback?: (info: MinifigInfo) => void,
         removeCallback?: (info: MinifigInfo) => void,
     ): Promise<Toypad> {
-        try {
-            return new Toypad(
-                await getDevice(),
-                addCallback,
-                removeCallback,
-            );
-        } catch(e) {
-            console.error(e);
-
-            throw new Error("Could not get a device");
-        }
+        return new Toypad(
+            await getDevice(),
+            addCallback,
+            removeCallback,
+        );
     }
 }
