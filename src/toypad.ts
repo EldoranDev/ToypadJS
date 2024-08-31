@@ -8,16 +8,25 @@ type CallbackFunction = (data: Frame) => void;
 
 export type UID = [number, number, number, number, number, number, number];
 
-export type MinifigInfo = {
+export enum TagStatus {
+    Ok,
+    Error,
+}
+
+export interface TagInfo {
     uid: UID,
     pad: Pad,
     index: number,
 };
 
+export interface ExtendedTagInfo extends TagInfo {
+    status: TagStatus,
+}
+
 export class Toypad {
     private counter: number = 1;
 
-    private minifigs: Map<string, MinifigInfo> = new Map();
+    private tags: Map<string, TagInfo> = new Map();
 
     private promiseMap: Map<string, CallbackFunction> = new Map();
 
@@ -28,8 +37,8 @@ export class Toypad {
     private constructor(
         private device: Device,
 
-        private addCallback?: (info: MinifigInfo) => void,
-        private removeCallback?: (info: MinifigInfo) => void,
+        private addCallback?: (info: TagInfo) => void,
+        private removeCallback?: (info: TagInfo) => void,
     ) {}
 
     public get open(): boolean {
@@ -41,13 +50,10 @@ export class Toypad {
             throw new Error("Already initialised");
         }
 
-        await this.device.open();
-        await this.wake();
-
         this.device.addListener((data: Uint8Array) => {
-            const frame = parseFrame(data);
-
             console.debug("RX: ", [...data].map((x) => x.toString(16).padStart(2, '0')).join(' '));
+
+            const frame = parseFrame(data);
 
             if (frame.type === FrameType.Message) {
                 if (this.promiseMap.has(frame.messageId.toString())) {
@@ -63,19 +69,22 @@ export class Toypad {
 
             switch (frame.event) {
                 case Event.MinifigScan:
-                    const info: MinifigInfo = {
+                    const info: TagInfo = {
                         uid: [...frame.data.slice(4, 11)] as UID,
                         pad: frame.data[0],
                         index: frame.data[2],
                     };
 
                     if (frame.data[3] === MinifigAction.Add) {
-                        this.minifigs.set(frame.data[2].toString(), info);
+                        this.tags.set(frame.data[2].toString(), info);
+
+                        console.log(this.tags);
+
                         if (this.addCallback) {
                             this.addCallback(info);
                         }
                     } else {
-                        this.minifigs.delete(frame.data[2].toString());
+                        this.tags.delete(frame.data[2].toString());
 
                         if (this.removeCallback) {
                             this.removeCallback(info);
@@ -84,25 +93,32 @@ export class Toypad {
                     break;
             }
         });
+        
+        await this.device.open();
+        await this.wake();
     }
 
-    public getMinifigs(): Array<MinifigInfo> {
-        return [...this.minifigs.values()];
+    public getMinifigs(): Array<TagInfo> {
+        return [...this.tags.values()];
     }
 
     public hasMinifig(pad: Pad): boolean {
         if (pad === Pad.AllPads) {
-            return this.minifigs.size > 0;
+            return this.tags.size > 0;
         }
 
         return this.getMinifigs().filter((info) => info.pad === pad).length > 0;
     }
 
-    public async wake(): Promise<void> {
-        await this.send(Command.Wake, [
-            // Hex of: (c) LEGO 2014
-            0x28, 0x63, 0x29, 0x20, 0x4c, 0x45, 0x47, 0x4f, 0x20, 0x32, 0x30, 0x31, 0x34,
-        ]);
+    public wake(): Promise<void> {
+        return new Promise((resolve) => {
+            this.send(Command.Wake, [
+                // Hex of: (c) LEGO 2014
+                0x28, 0x63, 0x29, 0x20, 0x4c, 0x45, 0x47, 0x4f, 0x20, 0x32, 0x30, 0x31, 0x34,
+            ], () => {
+                resolve();
+            });
+        });
     }
 
     public async setColor(pad: Pad, color: Color): Promise<void> {
@@ -118,9 +134,7 @@ export class Toypad {
 
         return new Promise((resolve, reject) => {
             this.send(Command.GetColor, [(pad - 1)], (frame: Frame) => {
-                console.log(frame);
-
-                resolve([0, 0, 0]);
+                resolve([frame.data[0], frame.data[1], frame.data[2]]);
             }).catch((e) => {
                 reject(e);
             });
@@ -150,6 +164,32 @@ export class Toypad {
             pad, tickTime, tickCount,
         ])
     }
+
+    public getTags(): Promise<ExtendedTagInfo[]> {
+        return new Promise((resolve) => {
+            this.send(Command.TagList, [], (frame) => {
+                const count = frame.data.length / 2;
+                const tags: ExtendedTagInfo[] = [];
+                
+                for (let i = 0; i < count; i++) {
+                    const low = frame.data[i * 2] & 0x0F;
+                    const high = (frame.data[i * 2] >> 4) & 0x0F;
+
+                    const tag = {
+                        index: low,
+                        pad: high,
+                        status: (frame.data[(i * 2) +1] === 0) ? TagStatus.Ok : TagStatus.Error,
+                        uid: this.tags.get(low.toString())!.uid
+                    };
+
+                    tags.push(tag);
+                }
+
+                resolve(tags);
+            });
+        });
+    }
+
 
     public readTag(index: number, page: number): Promise<Uint8Array> {
         return new Promise((resolve, reject) => {
@@ -205,8 +245,8 @@ export class Toypad {
     }
 
     static async connect(
-        addCallback?: (info: MinifigInfo) => void,
-        removeCallback?: (info: MinifigInfo) => void,
+        addCallback?: (info: TagInfo) => void,
+        removeCallback?: (info: TagInfo) => void,
     ): Promise<Toypad> {
         return new Toypad(
             await getDevice(),
