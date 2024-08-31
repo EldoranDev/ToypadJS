@@ -7,7 +7,7 @@
   <body>
     <button>Run Test</button>
     <script type="module">
-      import { Toypad, Pad } from './src/main'
+      import { Toypad, Pad } from "./src/main";
 
       const btn = document.querySelector("button");
 
@@ -36,7 +36,7 @@
 
         // await pad.fade(Pad.RightPad, 10, 1, [255, 0, 0]);
         // await pad.fadeRandom(Pad.LeftPad, 10, 1);
-       
+
         await pad.setColorAll([0, 0, 0], [0, 0, 0], [0, 0, 0]);
 
         console.log(await pad.getTags());
@@ -47,7 +47,7 @@
 
         // await pad.readTag(0, 0x5);
         // await pad.readTag(0, 1);
-      })
+      });
     </script>
   </body>
 </html>
