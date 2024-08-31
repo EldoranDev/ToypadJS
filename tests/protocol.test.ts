@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { calculateChecksum, createFrame, parseFrame } from '../src/usb';
+import { calculateChecksum, createFrame, parseFrame } from '../src/protocol';
 
 describe.concurrent('calculateChecksum', () => {
     test('works for low numbers', () => {
