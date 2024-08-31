@@ -41,12 +41,14 @@
 
         console.log(await pad.getTags());
 
-        // await pad.writeTag(0, 0x5, [0xAA, 0xAA, 0xAA, 0xAA]);
-
         // await new Promise((res, rej) => setTimeout(() => res(), 1000));
 
         // await pad.readTag(0, 0x5);
-        // await pad.readTag(0, 1);
+        await pad.setPasswordMode(0, 0);
+
+        console.log(await pad.readTag(0, 0x0b));
+        await pad.writeTag(0, 0x0b, [0xaa, 0xab, 0xac, 0xad]);
+        console.log(await pad.readTag(0, 0x0b));
       });
     </script>
   </body>

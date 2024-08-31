@@ -8,28 +8,18 @@ import {
   parseFrame,
   MinifigAction,
 } from "./protocol";
+import {
+  Color,
+  ExtendedTagInfo,
+  Password,
+  PasswordMode,
+  TagInfo,
+  TagStatus,
+  UID,
+} from "./types";
 import { getDevice, Device } from "./usb";
 
-export type Color = [r: number, g: number, b: number];
-
 type CallbackFunction = (data: Frame) => void;
-
-export type UID = [number, number, number, number, number, number, number];
-
-export enum TagStatus {
-  Ok,
-  Error,
-}
-
-export interface TagInfo {
-  uid: UID;
-  pad: Pad;
-  index: number;
-}
-
-export interface ExtendedTagInfo extends TagInfo {
-  status: TagStatus;
-}
 
 export class Toypad {
   private counter: number = 1;
@@ -251,6 +241,27 @@ export class Toypad {
         console.debug("tag-write", frame);
         resolve();
       });
+    });
+  }
+
+  public setPasswordMode(
+    index: number,
+    mode: PasswordMode,
+    password?: Password,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      if (password === undefined || password === null) {
+        password = [0x00, 0x00, 0x00, 0x00];
+      }
+
+      this.send(
+        Command.Password,
+        [index & 0xff, mode & 0xff, ...password],
+        (frame) => {
+          console.log(frame);
+          resolve();
+        },
+      );
     });
   }
 
